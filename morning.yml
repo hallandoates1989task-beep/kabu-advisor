@@ -1,0 +1,52 @@
+name: 朝のアドバイス更新
+
+on:
+  schedule:
+    # 平日 8:00 JST (= 前日 23:00 UTC 、日〜木)。Actionsの遅延を見込んで9:00より前に実行する
+    - cron: "0 23 * * 0-4"
+  workflow_dispatch: {}   # 手動実行(動作確認用)
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 日足を取得して data.json を作成
+        run: python scripts/fetch_prices.py
+      - name: アドバイスを計算して通知
+        env:
+          NOTIFY_WEBHOOK_URL: ${{ secrets.NOTIFY_WEBHOOK_URL }}
+          SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          # 手動実行・push のときは休場日でも通知する(動作確認用)
+          FORCE_NOTIFY: ${{ github.event_name != 'schedule' && '1' || '0' }}
+        run: python scripts/advisor.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

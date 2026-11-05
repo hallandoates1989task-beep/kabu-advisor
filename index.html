@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light}body{margin:0;font-size:14px}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>朝9時の売買アドバイザー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Shippori+Mincho:wght@700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* Layout: 左に今朝のアドバイスと銘柄一覧、右に設定・保有・データ取り込み。スマホでは縦積み。
+   Palette: 墨(neutral, 青寄り) / 藍(accent・買い) / 朱(売り) / 山吹(一部売却・注意) / 若竹(保有継続) */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --surface2:#eef1f6; --fg:#18202c; --muted:#5a6678; --line:#d9dee7;
+  --accent:#27478a; --accent-fg:#ffffff; --sell:#bf3d1b; --trim:#a96b08; --ok:#2b7a58;
+  --font-body:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+  --font-display:"Shippori Mincho","Hiragino Mincho ProN","Yu Mincho",serif;
+  --font-num:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e131b; --surface:#161d28; --surface2:#1d2633; --fg:#e5e9f0; --muted:#93a0b3; --line:#2a3445;
+    --accent:#7fa6ee; --accent-fg:#0e131b; --sell:#f0805f; --trim:#e3ad45; --ok:#5cbc90; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e131b; --surface:#161d28; --surface2:#1d2633; --fg:#e5e9f0; --muted:#93a0b3; --line:#2a3445;
+  --accent:#7fa6ee; --accent-fg:#0e131b; --sell:#f0805f; --trim:#e3ad45; --ok:#5cbc90; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.65;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1240px;margin:0 auto}
+h1,h2,h3{margin:0;line-height:1.3}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.top h1{font-family:var(--font-display);font-size:28px;letter-spacing:.02em}
+.top .sub{color:var(--muted);margin-top:4px;font-size:13px}
+.clock{display:flex;gap:20px;align-items:flex-end;flex-wrap:wrap}
+.clock .k{font-size:11px;color:var(--muted);letter-spacing:.08em}
+.clock .v{font-family:var(--font-num);font-size:20px;font-variant-numeric:tabular-nums}
+.toggle{display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer}
+
+/* status bar */
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:16px 0}
+.stat{background:var(--surface);border:1px solid var(--line);padding:12px 14px;min-width:0}
+.stat .k{font-size:11px;color:var(--muted);letter-spacing:.08em}
+.stat .v{font-size:18px;font-weight:700;margin-top:2px}
+.stat .d{font-size:12px;color:var(--muted);margin-top:2px}
+.bar{height:6px;background:var(--surface2);margin-top:8px;position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+.bar b{position:absolute;top:-3px;bottom:-3px;width:1px;background:var(--muted)}
+.tone-ok .v{color:var(--ok)} .tone-warn .v{color:var(--trim)} .tone-stop .v{color:var(--sell)}
+.alert{border:1px solid var(--trim);background:color-mix(in srgb,var(--trim) 10%,var(--surface));padding:10px 14px;margin-bottom:12px;font-size:13px}
+.demo-note{border:1px dashed var(--muted);padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--muted)}
+
+/* layout */
+.cols{display:grid;grid-template-columns:minmax(0,1fr);gap:24px}
+@media (min-width:1020px){.cols{grid-template-columns:minmax(0,1fr) 340px}}
+.main,.side{display:flex;flex-direction:column;gap:24px;min-width:0}
+.sec>h2{font-size:16px;margin-bottom:10px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.sec>h2 small{font-size:12px;color:var(--muted);font-weight:400}
+.panel{background:var(--surface);border:1px solid var(--line);padding:14px}
+
+/* advice */
+.group{margin-bottom:16px}
+.group>h3{font-size:12px;letter-spacing:.1em;color:var(--muted);margin-bottom:8px;display:flex;gap:8px;align-items:center}
+.cards{display:flex;flex-direction:column;gap:8px}
+.card{background:var(--surface);border:1px solid var(--line);padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;border-left:4px solid var(--line)}
+.card.buy{border-left-color:var(--accent)} .card.sell{border-left-color:var(--sell)} .card.trim{border-left-color:var(--trim)} .card.hold{border-left-color:var(--ok)}
+.card .nm{font-weight:700;font-size:15px}
+.card .nm .cd{font-family:var(--font-num);color:var(--muted);font-weight:400;margin-right:8px}
+.card .why{grid-column:1/-1;color:var(--muted);font-size:13px}
+.kv{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px 16px}
+.kv div{min-width:0}
+.kv dt{font-size:11px;color:var(--muted);letter-spacing:.06em}
+.kv dd{margin:0;font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:14px}
+.pill{display:inline-block;padding:1px 10px;font-size:12px;font-weight:700;border:1px solid currentColor;white-space:nowrap}
+.pill.buy{color:var(--accent)} .pill.sell{color:var(--sell)} .pill.trim{color:var(--trim)} .pill.hold{color:var(--ok)} .pill.watch,.pill.skip{color:var(--muted)}
+.pill.buy{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.pill.sell{background:color-mix(in srgb,var(--sell) 12%,transparent)}
+.pill.trim{background:color-mix(in srgb,var(--trim) 12%,transparent)}
+.pill.hold{background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.empty{padding:14px;border:1px dashed var(--line);color:var(--muted)}
+.rule-note{font-size:12px;color:var(--muted);margin-top:8px}
+.up{color:var(--sell)} .dn{color:var(--ok)} /* 日本の慣習: 上昇=赤 下落=緑 */
+
+/* table */
+.tw{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:720px}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;color:var(--muted);letter-spacing:.06em;font-weight:500;background:var(--surface2)}
+th:first-child,td:first-child{text-align:left}
+td:first-child{white-space:normal;min-width:150px}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--surface2)}
+tbody tr.sel{background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+tbody tr.nodata{color:var(--muted)}
+td .cd{font-family:var(--font-num);color:var(--muted);margin-right:6px}
+.score{display:inline-block;width:44px;height:6px;background:var(--surface2);vertical-align:middle;margin-right:6px;position:relative}
+.score i{position:absolute;inset:0 auto 0 0;background:var(--accent)}
+
+/* detail */
+.detail{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+@media (min-width:760px){.detail{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}}
+svg.ch{width:100%;height:auto;display:block}
+svg.ch text{fill:var(--muted);font-family:var(--font-num);font-size:10px}
+svg.ch .grid{stroke:var(--line);stroke-width:1}
+svg.ch .px{fill:none;stroke:var(--fg);stroke-width:1.6}
+svg.ch .s25{fill:none;stroke:var(--accent);stroke-width:1.2}
+svg.ch .s75{fill:none;stroke:var(--trim);stroke-width:1.2}
+svg.ch .rs{fill:none;stroke:var(--accent);stroke-width:1.2}
+svg.ch .ln-stop{stroke:var(--sell);stroke-dasharray:4 3;stroke-width:1}
+svg.ch .ln-tgt{stroke:var(--ok);stroke-dasharray:4 3;stroke-width:1}
+svg.ch .ln-ent{stroke:var(--muted);stroke-dasharray:2 3;stroke-width:1}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.checks li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:6px}
+.checks .m{font-family:var(--font-num);font-weight:700}
+.checks .y .m{color:var(--ok)} .checks .n .m{color:var(--sell)}
+.checks small{display:block;color:var(--muted)}
+
+/* side forms */
+.fld{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:6px 10px;align-items:center;margin-bottom:8px}
+.fld label{font-size:13px}
+.fld small{grid-column:1/-1;color:var(--muted);font-size:11px;margin-top:-4px}
+input[type=number],input[type=text],select,textarea{background:var(--bg);border:1px solid var(--line);padding:6px 8px;width:100%;min-width:0;border-radius:0}
+textarea{font-family:var(--font-num);font-size:12px;min-height:80px;resize:vertical}
+.btn{background:var(--surface2);border:1px solid var(--line);padding:6px 12px;cursor:pointer;border-radius:0}
+.btn:hover{border-color:var(--accent)}
+.btn.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn.sm{padding:2px 8px;font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.hold-list{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.hl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;padding:6px 8px;background:var(--surface2);font-size:13px}
+.hl .num{color:var(--muted);font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:2px 4px 2px 8px;background:var(--surface2);font-size:12px}
+.chip.no{color:var(--muted)}
+.chip button{border:0;background:transparent;cursor:pointer;padding:0 4px;color:var(--muted)}
+.hint{font-size:12px;color:var(--muted)}
+.hr{height:1px;background:var(--line);margin:12px 0}
+details{background:var(--surface);border:1px solid var(--line);padding:10px 14px}
+summary{cursor:pointer;font-weight:700}
+details ul{margin:8px 0 0;padding-left:20px}
+details li{margin-bottom:4px}
+.disc{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;margin-top:8px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:8px 16px;font-size:13px;z-index:20;max-width:90vw}
+@media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>朝9時の売買アドバイザー</h1>
+      <div class="sub">日本株 ・ テクニカル指標 ・ 低リスク運用モデル(押し目買い + 損切り先行)</div>
+    </div>
+    <div class="clock">
+      <div><div class="k">現在 (JST)</div><div class="v" id="clk">--:--:--</div></div>
+      <div><div class="k">次の寄付き 9:00 まで</div><div class="v" id="cnt">--:--:--</div></div>
+      <label class="toggle"><input type="checkbox" id="autoRun"> 9:00に自動で再計算して通知</label>
+    </div>
+  </header>
+
+  <div class="status" id="status"></div>
+  <div id="notes"></div>
+
+  <div class="cols">
+    <div class="main">
+      <section class="sec">
+        <h2>今朝のアドバイス <small id="adviceDate"></small></h2>
+        <div id="advice"></div>
+      </section>
+
+      <section class="sec">
+        <h2>銘柄一覧 <small>行をクリックすると指標とチャートを表示</small></h2>
+        <div class="tw"><table id="tbl"></table></div>
+      </section>
+
+      <section class="sec">
+        <h2 id="detailTitle">銘柄の詳細</h2>
+        <div class="panel detail" id="detail"></div>
+      </section>
+
+      <details>
+        <summary>売買ルールの中身(低リスク設計)</summary>
+        <ul>
+          <li><b>方針</b>: 上昇トレンド中の押し目だけを買い、飛び乗り・逆張りはしない。損切り幅を先に決め、そこから株数を逆算する。</li>
+          <li><b>買い条件(7つすべて)</b>: ①終値&gt;75日線 かつ 25日線&gt;75日線 かつ 75日線が上向き ②終値が25日線の −5%〜+2% ③RSI(14)が35〜60 ④MACDヒストグラムが前日より改善 ⑤ATR%が3.5%以下 ⑥出来高が20日平均の70%以上 ⑦前日比+4%以下。</li>
+          <li><b>株数</b>: 1回の最大損失 = 総資金 × リスク率(既定0.5%)。株数 = 最大損失 ÷ (終値 − 損切り価格)。さらに1銘柄の上限比率、現金の最低保有比率で切り下げ、100株単位に丸める。</li>
+          <li><b>損切り</b>: 終値 − 2 × ATR(14)。保有後は、含み益が 1.5ATR を超えたら建値まで引き上げ、2.5ATR を超えたら直近20日高値 − 2.5ATR で追随する。</li>
+          <li><b>売り</b>: 損切り価格に到達 / 終値が75日線を割る / 終値が25日線を割り、かつMACDヒストグラムが負で悪化 → 全株売却。RSI 75以上は半分利確。</li>
+          <li><b>地合いフィルター</b>: 監視銘柄のうち75日線より上にある割合(%)で判定。50%以上は通常、30〜50%は新規を1銘柄まで、30%未満は新規買い停止。</li>
+          <li><b>同時保有</b>: 最大5銘柄、1日の新規は最大2銘柄、現金は常に総資金の40%以上を残す(すべて設定で変更可)。</li>
+          <li><b>注文の出し方</b>: 買いは前日終値の指値。始値が前日終値より2%以上高く始まったら見送る。損切りは約定後すぐ逆指値で入れる。</li>
+        </ul>
+      </details>
+      <p class="disc">本ページは過去の価格から機械的に計算した参考情報で、投資助言ではありません。将来の利益を保証するものではなく、損失が出る可能性があります。注文は自動では発注されません。最終判断と発注はご自身で行ってください。</p>
+    </div>
+
+    <aside class="side">
+      <section class="sec panel">
+        <h2>運用設定</h2>
+        <div class="fld"><label for="s_capital">総資金 (円)</label><input type="number" id="s_capital" step="100000" min="0"></div>
+        <div class="fld"><label for="s_risk">1回の最大損失 (%)</label><input type="number" id="s_risk" step="0.1" min="0.1" max="3"><small>総資金に対する割合。低リスクなら0.5%前後</small></div>
+        <div class="fld"><label for="s_pos">1銘柄の上限 (%)</label><input type="number" id="s_pos" step="1" min="1" max="100"></div>
+        <div class="fld"><label for="s_max">最大保有銘柄数</label><input type="number" id="s_max" step="1" min="1" max="20"></div>
+        <div class="fld"><label for="s_new">1日の新規上限</label><input type="number" id="s_new" step="1" min="0" max="10"></div>
+        <div class="fld"><label for="s_cash">現金の最低比率 (%)</label><input type="number" id="s_cash" step="5" min="0" max="95"></div>
+        <div class="fld"><label for="s_atr">損切り幅 (ATR倍)</label><input type="number" id="s_atr" step="0.5" min="1" max="4"></div>
+      </section>
+
+      <section class="sec panel">
+        <h2>保有銘柄 <small>売り判断に使います</small></h2>
+        <div class="hold-list" id="holdList"></div>
+        <div class="row">
+          <select id="h_code" style="width:auto;flex:1 1 130px"></select>
+          <input type="number" id="h_sh" placeholder="株数" min="100" step="100" style="width:80px;flex:0 0 80px">
+          <input type="number" id="h_px" placeholder="取得単価" min="1" step="1" style="width:90px;flex:0 0 90px">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input type="number" id="h_stop" placeholder="損切り価格(任意)" min="1" step="1" style="flex:1 1 140px">
+          <button class="btn" id="h_add">追加</button>
+        </div>
+        <p class="hint" style="margin-top:8px">損切り価格を空欄にすると、取得単価 − 損切り幅(ATR倍)で自動計算します。</p>
+      </section>
+
+      <section class="sec panel">
+        <h2>価格データの取り込み</h2>
+        <p class="hint">アドバイスは取り込んだ日足の最終終値を基準に計算します。毎朝、前営業日までの日足CSVを取り込んでください。</p>
+        <div class="row" style="margin:10px 0">
+          <button class="btn pri" id="demoBtn">デモデータを読み込む</button>
+          <button class="btn" id="clearBtn">データを消去</button>
+        </div>
+        <label class="hint" for="fileIn">CSVファイル(複数可。ファイル名に銘柄コードを含めてください 例: 7203.jp.csv)</label>
+        <input type="file" id="fileIn" accept=".csv,.txt,text/csv" multiple style="margin:6px 0 10px;width:100%">
+        <label class="hint" for="pasteCode">CSVを貼り付ける</label>
+        <div class="row" style="margin:6px 0">
+          <select id="pasteCode" style="width:auto;flex:1 1 130px"></select>
+          <button class="btn" id="pasteBtn">取り込む</button>
+        </div>
+        <textarea id="pasteTa" placeholder="Date,Open,High,Low,Close,Volume&#10;2026-10-30,2950,2988,2931,2975,5213400&#10;..."></textarea>
+        <p class="hint" style="margin-top:6px">対応形式: Stooq / Yahoo!ファイナンス形式(日付・始値・高値・安値・終値・出来高の列)。75本以上の日足が必要です。</p>
+        <div class="hr"></div>
+        <h2 style="font-size:14px">監視銘柄</h2>
+        <div class="chips" id="chips"></div>
+        <div class="row">
+          <input type="text" id="w_code" placeholder="コード 例 6758" maxlength="5" style="width:110px;flex:0 0 110px">
+          <input type="text" id="w_name" placeholder="銘柄名" style="flex:1 1 100px">
+          <button class="btn" id="w_add">追加</button>
+        </div>
+        <p class="hint" style="margin-top:8px">CSVの入手先: <a href="https://stooq.com/" target="_blank" rel="noopener" style="color:var(--accent)">Stooq</a>(例 <span class="num">7203.jp</span> の日足をダウンロード)。</p>
+      </section>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+var LS="kabu-advisor-v1";
+var DEFAULT_WATCH=[["7203","トヨタ自動車"],["8306","三菱UFJフィナンシャル"],["8316","三井住友FG"],["9432","日本電信電話"],["9433","KDDI"],["2914","日本たばこ産業"],["8058","三菱商事"],["8031","三井物産"],["8001","伊藤忠商事"],["4502","武田薬品工業"],["6501","日立製作所"],["4063","信越化学工業"]];
+var DEFAULT_SET={capital:1000000,riskPct:0.5,maxPosPct:20,maxPositions:5,maxNew:2,cashPct:40,stopAtr:2};
+
+/* ---------- state ---------- */
+var S=loadState();
+var sel=null;
+function loadState(){
+  var d={settings:Object.assign({},DEFAULT_SET),watch:DEFAULT_WATCH.map(function(w){return{code:w[0],name:w[1]}}),holdings:[],data:{},demo:false,auto:false,lastAuto:""};
+  try{var raw=localStorage.getItem(LS);if(raw){var p=JSON.parse(raw);
+    if(p.settings)d.settings=Object.assign(d.settings,p.settings);
+    if(p.watch&&p.watch.length)d.watch=p.watch;
+    if(p.holdings)d.holdings=p.holdings; if(p.data)d.data=p.data;
+    d.demo=!!p.demo; d.auto=!!p.auto; d.lastAuto=p.lastAuto||"";}}catch(e){}
+  return d;
+}
+function save(){try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}}
+
+/* ---------- time (JST) ---------- */
+function jstNow(){return new Date(Date.now()+9*3600e3)}
+function pad(n){return n<10?"0"+n:""+n}
+function ymd(d){return d.getUTCFullYear()+"-"+pad(d.getUTCMonth()+1)+"-"+pad(d.getUTCDate())}
+function isWeekday(d){var w=d.getUTCDay();return w!==0&&w!==6}
+function expectedLastClose(){ // 直近で確定しているはずの営業日(土日のみ考慮)
+  var j=jstNow(); var d=new Date(Date.UTC(j.getUTCFullYear(),j.getUTCMonth(),j.getUTCDate()));
+  var minutes=j.getUTCHours()*60+j.getUTCMinutes();
+  if(!(isWeekday(d)&&minutes>=15*60+30)) d=new Date(d.getTime()-86400e3);
+  while(!isWeekday(d)) d=new Date(d.getTime()-86400e3);
+  return ymd(d);
+}
+function nextOpenMs(){
+  var j=jstNow(); var base=Date.UTC(j.getUTCFullYear(),j.getUTCMonth(),j.getUTCDate(),9,0,0);
+  var t=base; if(j.getTime()>=base) t+=86400e3;
+  while(!isWeekday(new Date(t))) t+=86400e3;
+  return t-j.getTime();
+}
+function tick(){
+  var j=jstNow();
+  $("clk").textContent=pad(j.getUTCHours())+":"+pad(j.getUTCMinutes())+":"+pad(j.getUTCSeconds());
+  var ms=nextOpenMs(),s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60),sc=s%60;
+  $("cnt").textContent=(h>=24?Math.floor(h/24)+"日 ":"")+pad(h%24)+":"+pad(m)+":"+pad(sc);
+  if(S.auto&&isWeekday(j)&&j.getUTCHours()>=9&&S.lastAuto!==ymd(j)){
+    S.lastAuto=ymd(j);save();renderAll();
+    toast("9:00になりました。今朝のアドバイスを更新しました");
+    try{if(window.Notification&&Notification.permission==="granted")new Notification("朝9時の売買アドバイザー",{body:$("advice").dataset.summary||"今朝のアドバイスを更新しました"})}catch(e){}
+  }
+}
+
+/* ---------- indicators ---------- */
+function sma(a,n){var r=new Array(a.length).fill(null),s=0;for(var i=0;i<a.length;i++){s+=a[i];if(i>=n)s-=a[i-n];if(i>=n-1)r[i]=s/n}return r}
+function ema(a,n){var k=2/(n+1),r=[],p=null;for(var i=0;i<a.length;i++){p=p===null?a[i]:a[i]*k+p*(1-k);r.push(p)}return r}
+function rsi(c,n){var r=new Array(c.length).fill(null),g=0,l=0;
+  for(var i=1;i<c.length;i++){var d=c[i]-c[i-1],u=Math.max(d,0),w=Math.max(-d,0);
+    if(i<=n){g+=u;l+=w;if(i===n){g/=n;l/=n;r[i]=l===0?100:100-100/(1+g/l)}}
+    else{g=(g*(n-1)+u)/n;l=(l*(n-1)+w)/n;r[i]=l===0?100:100-100/(1+g/l)}}
+  return r}
+function atr(b,n){var r=new Array(b.length).fill(null),p=null,tr=[];
+  for(var i=0;i<b.length;i++){var x=i===0?b[i].h-b[i].l:Math.max(b[i].h-b[i].l,Math.abs(b[i].h-b[i-1].c),Math.abs(b[i].l-b[i-1].c));tr.push(x);
+    if(i===n-1){p=tr.reduce(function(a,c){return a+c},0)/n;r[i]=p}else if(i>=n){p=(p*(n-1)+x)/n;r[i]=p}}
+  return r}
+function analyze(code){
+  var b=S.data[code]; if(!b||b.length<80) return null;
+  var bars=b.map(function(x){return{d:x[0],o:x[1],h:x[2],l:x[3],c:x[4],v:x[5]}});
+  var c=bars.map(function(x){return x.c}),v=bars.map(function(x){return x.v}),n=c.length,i=n-1;
+  var s25=sma(c,25),s75=sma(c,75),s20=sma(c,20),r=rsi(c,14),a=atr(bars,14);
+  var e12=ema(c,12),e26=ema(c,26),macd=e12.map(function(x,k){return x-e26[k]}),sig=ema(macd,9),hist=macd.map(function(x,k){return x-sig[k]});
+  var vol20=sma(v,20);
+  var A={code:code,bars:bars,c:c[i],prev:c[i-1],date:bars[i].d,sma25:s25[i],sma75:s75[i],sma75p:s75[i-10],rsi:r[i],hist:hist[i],histP:hist[i-1],atr:a[i],
+    s25:s25,s75:s75,rsiS:r,volRatio:vol20[i]?v[i]/vol20[i]:1};
+  A.chg=A.c/A.prev-1; A.dev25=A.c/A.sma25-1; A.atrPct=A.atr/A.c;
+  A.max20=Math.max.apply(null,c.slice(-20));
+  var trend=A.c>A.sma75&&A.sma25>A.sma75&&A.sma75>A.sma75p;
+  var cks=[
+    {w:25,ok:trend,t:"上昇トレンド",d:"終値 "+f0(A.c)+" / 25日線 "+f0(A.sma25)+" / 75日線 "+f0(A.sma75)+(A.sma75>A.sma75p?"(上向き)":"(横ばい〜下向き)")},
+    {w:15,ok:A.dev25>=-0.05&&A.dev25<=0.02,t:"25日線付近の押し目",d:"25日線との乖離 "+pc(A.dev25)+"(基準 −5%〜+2%)"},
+    {w:15,ok:A.rsi>=35&&A.rsi<=60,t:"RSIが過熱でも売られ過ぎでもない",d:"RSI(14) "+A.rsi.toFixed(1)+"(基準 35〜60)"},
+    {w:15,ok:A.hist>A.histP,t:"MACDヒストグラムが改善",d:"本日 "+A.hist.toFixed(1)+" / 前日 "+A.histP.toFixed(1)},
+    {w:10,ok:A.atrPct<=0.035,t:"値動きが穏やか",d:"ATR "+(A.atrPct*100).toFixed(2)+"%(基準 3.5%以下)"},
+    {w:10,ok:A.volRatio>=0.7,t:"出来高が十分",d:"20日平均の "+(A.volRatio*100).toFixed(0)+"%(基準 70%以上)"},
+    {w:10,ok:A.chg<=0.04,t:"急騰直後ではない",d:"前日比 "+pc(A.chg)+"(基準 +4%以下)"}
+  ];
+  A.checks=cks; A.score=cks.reduce(function(s,x){return s+(x.ok?x.w:0)},0); A.allOk=cks.every(function(x){return x.ok});
+  return A;
+}
+
+/* ---------- formatting ---------- */
+function f0(n){return Math.round(n).toLocaleString("ja-JP")}
+function yen(n){return"¥"+f0(n)}
+function pc(x){return(x>=0?"+":"")+(x*100).toFixed(1)+"%"}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function nameOf(code){var w=S.watch.filter(function(x){return x.code===code})[0];return w?w.name:""}
+
+/* ---------- advice engine ---------- */
+function compute(){
+  var st=S.settings, all={}, withData=0, above=0;
+  S.watch.forEach(function(w){var a=analyze(w.code);all[w.code]=a;if(a){withData++;if(a.c>a.sma75)above++}});
+  var breadth=withData?above/withData:null, regime="unknown", maxNew=st.maxNew;
+  if(breadth!==null){
+    if(withData<3){regime="warn"}
+    else if(breadth>=0.5)regime="ok"; else if(breadth>=0.3)regime="warn"; else regime="stop";
+  }
+  if(regime==="warn")maxNew=Math.min(maxNew,1);
+  if(regime==="stop")maxNew=0;
+
+  // holdings
+  var heldCodes={},heldValue=0,sells=[],holds=[];
+  S.holdings.forEach(function(h){
+    heldCodes[h.code]=1; var a=all[h.code]; if(!a)return;
+    var val=a.c*h.shares; heldValue+=val;
+    var stop=h.stop>0?h.stop:h.avg-st.stopAtr*a.atr;
+    if(a.c>=h.avg+1.5*a.atr)stop=Math.max(stop,h.avg);
+    if(a.max20>=h.avg+2.5*a.atr)stop=Math.max(stop,a.max20-2.5*a.atr);
+    var pnl=a.c/h.avg-1, base={h:h,a:a,stop:stop,pnl:pnl};
+    var why=null,kind="hold",qty=h.shares;
+    if(a.c<=stop){kind="sell";why="終値が損切り/トレーリング価格 "+yen(stop)+" に到達"}
+    else if(a.c<a.sma75){kind="sell";why="終値が75日線(¥"+f0(a.sma75)+")を割り込み、上昇トレンドが終了"}
+    else if(a.c<a.sma25&&a.hist<0&&a.hist<a.histP){kind="sell";why="25日線割れ + MACDヒストグラムが負で悪化(短期トレンド悪化)"}
+    else if(a.rsi>=75&&h.shares>=200){kind="trim";qty=Math.floor(h.shares/2/100)*100;why="RSI "+a.rsi.toFixed(0)+" と過熱。半分を利益確定"}
+    base.kind=kind;base.qty=qty;base.why=why;
+    (kind==="hold"?holds:sells).push(base);
+  });
+
+  // buys
+  var cand=[],watch=[];
+  S.watch.forEach(function(w){var a=all[w.code];if(!a||heldCodes[w.code])return;
+    if(a.allOk)cand.push(a); else if(a.score>=75)watch.push(a)});
+  cand.sort(function(x,y){return y.score-x.score||x.atrPct-y.atrPct});
+  var heldCount=S.holdings.length-sells.filter(function(s){return s.kind==="sell"}).length;
+  var slots=Math.max(0,Math.min(maxNew,st.maxPositions-heldCount));
+  var budget=st.capital*(1-st.cashPct/100)-heldValue, buys=[], skipped=[];
+  cand.forEach(function(a){
+    if(buys.length>=slots){skipped.push({a:a,why:regime!=="ok"&&maxNew<st.maxNew?"地合いフィルターで新規数を制限中":"新規の上限または保有上限に達している"});return}
+    var entry=a.c, stop=entry-st.stopAtr*a.atr, rps=entry-stop;
+    var q1=Math.floor(st.capital*st.riskPct/100/rps/100)*100;
+    var q2=Math.floor(st.capital*st.maxPosPct/100/entry/100)*100;
+    var q3=Math.floor(Math.max(0,budget)/entry/100)*100;
+    var qty=Math.min(q1,q2,q3);
+    if(qty<100){skipped.push({a:a,why:"資金・リスク枠の範囲では100株を買えない(必要資金 "+yen(entry*100)+")"});return}
+    budget-=qty*entry;
+    buys.push({a:a,qty:qty,entry:entry,stop:stop,target:entry+1.5*rps,cost:qty*entry,risk:qty*rps,limit:qty===q1?"損失枠":qty===q2?"1銘柄上限":"現金比率"});
+  });
+  return{all:all,withData:withData,breadth:breadth,regime:regime,maxNew:maxNew,buys:buys,skipped:skipped,watch:watch,sells:sells,holds:holds,heldValue:heldValue,cand:cand};
+}
+
+/* ---------- render ---------- */
+var R=null;
+function renderAll(){
+  R=compute(); renderStatus(); renderAdvice(); renderTable(); renderDetail(); renderSide();
+}
+function latestDate(){var m="";for(var k in R.all){var a=R.all[k];if(a&&a.date>m)m=a.date}return m}
+function renderStatus(){
+  var last=latestDate(), exp=expectedLastClose(), b=R.breadth;
+  var tone=R.regime==="ok"?"tone-ok":R.regime==="stop"?"tone-stop":"tone-warn";
+  var label={ok:"通常",warn:"慎重",stop:"新規買い停止",unknown:"判定不可"}[R.regime];
+  var detail=b===null?"価格データを取り込むと判定します":"監視銘柄の "+Math.round(b*100)+"% が75日線の上("+R.withData+"銘柄中)";
+  var held=R.heldValue, cap=S.settings.capital;
+  var h='<div class="stat '+tone+'"><div class="k">地合いフィルター</div><div class="v">'+label+'</div><div class="d">'+detail+'</div>'+
+    (b!==null?'<div class="bar"><i style="width:'+Math.round(b*100)+'%"></i><b style="left:30%"></b><b style="left:50%"></b></div>':'')+'</div>';
+  h+='<div class="stat"><div class="k">判定の基準日(最終終値)</div><div class="v num">'+(last||"データなし")+'</div><div class="d">本日の新規買い枠 '+R.maxNew+' 銘柄まで</div></div>';
+  h+='<div class="stat"><div class="k">保有評価額 / 総資金</div><div class="v num">'+yen(held)+'</div><div class="d">総資金の '+(cap?(held/cap*100).toFixed(0):0)+'% を投入中(上限 '+(100-S.settings.cashPct)+'%)</div></div>';
+  h+='<div class="stat"><div class="k">買い候補 / 監視中</div><div class="v num">'+R.cand.length+' / '+R.watch.length+'</div><div class="d">全条件クリア / あと一歩(スコア75以上)</div></div>';
+  $("status").innerHTML=h;
+  var n="";
+  if(S.remote)n+='<div class="demo-note">価格データは自動取得です(取得: '+esc(S.remote.generated)+(S.remote.source?' / '+esc(S.remote.source):'')+')。設定・保有銘柄・監視銘柄は <span class="num">config.json</span> の内容が読み込まれます。画面での変更は次回の読み込みで元に戻ります。</div>';
+  if(S.demo)n+='<div class="demo-note">表示中の価格は<b>デモ用の架空データ</b>です。実際の売買には使えません。右の「価格データの取り込み」で実データのCSVを読み込むと置き換わります。保有銘柄もサンプルです。</div>';
+  if(last&&!S.demo&&last<exp)n+='<div class="alert">価格データの最終日が '+last+' です。直近の営業日は '+exp+' のはずなので、最新のCSVを取り込んでください(祝日の場合は、そのままで問題ありません)。</div>';
+  $("notes").innerHTML=n;
+}
+function kvs(a){return'<dl class="kv">'+a.map(function(x){return'<div><dt>'+x[0]+'</dt><dd>'+x[1]+'</dd></div>'}).join("")+'</dl>'}
+function card(cls,pill,a,body,why){
+  return'<div class="card '+cls+'"><div class="nm"><span class="cd">'+a.code+'</span>'+esc(nameOf(a.code))+'</div><div><span class="pill '+cls+'">'+pill+'</span></div>'+body+(why?'<div class="why">'+why+'</div>':'')+'</div>';
+}
+function renderAdvice(){
+  var h="",sum=[];
+  $("adviceDate").textContent=latestDate()?"基準: "+latestDate()+" の終値":"";
+  if(!R.withData){$("advice").innerHTML='<div class="empty">価格データがまだありません。右側の「デモデータを読み込む」で動作を確認するか、日足CSVを取り込んでください。</div>';$("advice").dataset.summary="";return}
+  // sells
+  var so=R.sells;
+  h+='<div class="group"><h3>売り <span class="num">'+so.length+'</span></h3>';
+  if(so.length){h+='<div class="cards">'+so.map(function(s){
+      var t=s.kind==="sell"?"全株売却":"半分利確";
+      return card(s.kind,t,s.a,kvs([["数量",f0(s.qty)+"株"],["注文","寄付き成行"],["取得単価",yen(s.h.avg)],["損益",'<span class="'+(s.pnl>=0?"up":"dn")+'">'+pc(s.pnl)+"</span>"]]),esc(s.why))}).join("")+'</div>';
+    sum.push("売り "+so.length+"件")}
+  else h+='<div class="empty">本日の売却推奨はありません。</div>';
+  h+='</div>';
+  // buys
+  h+='<div class="group"><h3>新規買い <span class="num">'+R.buys.length+'</span></h3>';
+  if(R.buys.length){
+    h+='<div class="cards">'+R.buys.map(function(b){
+      var a=b.a;
+      return card("buy","買い",a,kvs([["数量",f0(b.qty)+"株"],["指値の目安",yen(b.entry)],["損切り(逆指値)",yen(b.stop)+" ("+pc(b.stop/b.entry-1)+")"],["利確の目安",yen(b.target)],["投入額",yen(b.cost)],["想定最大損失",yen(b.risk)+" ("+(b.risk/S.settings.capital*100).toFixed(2)+"%)"]]),
+        "条件7つをすべて満たしました(スコア "+a.score+")。RSI "+a.rsi.toFixed(0)+" / 25日線乖離 "+pc(a.dev25)+" / ATR "+(a.atrPct*100).toFixed(1)+"%。株数は「"+b.limit+"」で制限されています。")}).join("")+'</div>';
+    h+='<div class="rule-note">始値が前日終値より2%以上高く始まったら見送ります。約定したらすぐに逆指値を入れてください。</div>';
+    sum.push("買い "+R.buys.length+"件");
+  }else{
+    var why=R.regime==="stop"?"地合いが弱いため、新規買いを停止しています。":R.cand.length?"条件を満たす銘柄はありますが、枠・資金の都合で見送りです。":"7つの条件をすべて満たす銘柄がありません。何もしない日も、低リスク運用の一部です。";
+    h+='<div class="empty">'+why+'</div>';
+  }
+  R.skipped.forEach(function(s){h+='<div class="rule-note">見送り: '+s.a.code+' '+esc(nameOf(s.a.code))+' ― '+esc(s.why)+'</div>'});
+  h+='</div>';
+  // holds
+  h+='<div class="group"><h3>保有継続 <span class="num">'+R.holds.length+'</span></h3>';
+  if(R.holds.length){h+='<div class="cards">'+R.holds.map(function(s){
+      return card("hold","保有",s.a,kvs([["数量",f0(s.h.shares)+"株"],["逆指値の位置",yen(s.stop)],["取得単価",yen(s.h.avg)],["損益",'<span class="'+(s.pnl>=0?"up":"dn")+'">'+pc(s.pnl)+"</span>"]]),"売り条件に該当なし。逆指値を "+yen(s.stop)+" に置いたまま持ち続けます。")}).join("")+'</div>'}
+  else h+='<div class="empty">保有銘柄がありません。右の「保有銘柄」から追加すると、売り判断を表示します。</div>';
+  h+='</div>';
+  if(R.watch.length){
+    h+='<div class="group"><h3>監視中(あと一歩) <span class="num">'+R.watch.length+'</span></h3><div class="cards">'+R.watch.map(function(a){
+      var miss=a.checks.filter(function(c){return!c.ok}).map(function(c){return c.t}).join("、");
+      return card("watch","監視",a,"","未達の条件: "+esc(miss)+"(スコア "+a.score+")")}).join("")+'</div></div>';
+  }
+  $("advice").innerHTML=h; $("advice").dataset.summary=sum.join(" / ")||"本日は様子見です";
+}
+function renderTable(){
+  var rows=S.watch.map(function(w){var a=R.all[w.code];return{w:w,a:a}});
+  rows.sort(function(x,y){return(y.a?y.a.score:-1)-(x.a?x.a.score:-1)});
+  var h='<thead><tr><th>銘柄</th><th>終値</th><th>前日比</th><th>25日線乖離</th><th>RSI</th><th>MACD hist</th><th>ATR%</th><th>スコア</th><th>判定</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var w=r.w,a=r.a;
+    if(!a){h+='<tr class="nodata" data-c="'+w.code+'"><td><span class="cd">'+w.code+'</span>'+esc(w.name)+'</td><td colspan="8" style="text-align:left">価格データなし</td></tr>';return}
+    var verdict=heldVerdict(w.code,a);
+    h+='<tr data-c="'+w.code+'"'+(sel===w.code?' class="sel"':'')+'><td><span class="cd">'+w.code+'</span>'+esc(w.name)+'</td>'+
+      '<td class="num">'+f0(a.c)+'</td><td class="num '+(a.chg>=0?"up":"dn")+'">'+pc(a.chg)+'</td><td class="num">'+pc(a.dev25)+'</td>'+
+      '<td class="num">'+a.rsi.toFixed(0)+'</td><td class="num">'+a.hist.toFixed(1)+'</td><td class="num">'+(a.atrPct*100).toFixed(1)+'</td>'+
+      '<td class="num"><span class="score"><i style="width:'+a.score+'%"></i></span>'+a.score+'</td><td><span class="pill '+verdict[0]+'">'+verdict[1]+'</span></td></tr>';
+  });
+  $("tbl").innerHTML=h+'</tbody>';
+}
+function heldVerdict(code,a){
+  var s=R.sells.filter(function(x){return x.h.code===code})[0]; if(s)return[s.kind,s.kind==="sell"?"売り":"一部売り"];
+  if(R.holds.some(function(x){return x.h.code===code}))return["hold","保有"];
+  if(R.buys.some(function(x){return x.a.code===code}))return["buy","買い"];
+  if(a.allOk)return["skip","見送り"]; if(a.score>=75)return["watch","監視"]; return["skip","対象外"];
+}
+function renderDetail(){
+  var code=sel; if(!code||!R.all[code]){var f=S.watch.filter(function(w){return R.all[w.code]})[0];code=f?f.code:null;sel=code}
+  if(!code){$("detailTitle").textContent="銘柄の詳細";$("detail").innerHTML='<div class="empty">価格データを取り込むと、チャートと条件チェックを表示します。</div>';return}
+  var a=R.all[code]; $("detailTitle").innerHTML='<span class="num" style="color:var(--muted)">'+code+'</span> '+esc(nameOf(code))+' <small>終値 '+yen(a.c)+' ・ '+a.date+'</small>';
+  var buy=R.buys.filter(function(b){return b.a.code===code})[0], hold=R.holds.concat(R.sells).filter(function(x){return x.h.code===code})[0];
+  var lines=[]; if(buy){lines.push({y:buy.stop,k:"stop",t:"損切り"},{y:buy.target,k:"tgt",t:"利確"},{y:buy.entry,k:"ent",t:"指値"})}
+  if(hold){lines.push({y:hold.stop,k:"stop",t:"逆指値"},{y:hold.h.avg,k:"ent",t:"取得"})}
+  var ck='<ul class="checks">'+a.checks.map(function(c){return'<li class="'+(c.ok?"y":"n")+'"><span class="m">'+(c.ok?"○":"×")+'</span><div>'+c.t+'<small>'+esc(c.d)+'</small></div></li>'}).join("")+'</ul>';
+  var ind=kvs([["25日線",f0(a.sma25)],["75日線",f0(a.sma75)],["RSI(14)",a.rsi.toFixed(1)],["ATR(14)",f0(a.atr)],["出来高比",(a.volRatio*100).toFixed(0)+"%"],["スコア",a.score+" / 100"]]);
+  $("detail").innerHTML='<div>'+chart(a,lines)+'<div class="legend"><span><i style="background:var(--fg)"></i>終値</span><span><i style="background:var(--accent)"></i>25日線</span><span><i style="background:var(--trim)"></i>75日線</span></div><div style="margin-top:12px">'+ind+'</div></div><div><h3 style="font-size:13px;margin-bottom:8px">買い条件のチェック</h3>'+ck+'</div>';
+}
+function chart(a,lines){
+  var N=Math.min(100,a.bars.length),st=a.bars.length-N,W=640,H=230,L=46,Rr=10,T=10,B=22,H2=60;
+  var xs=function(i){return L+(W-L-Rr)*i/(N-1)};
+  var vals=[];for(var i=st;i<a.bars.length;i++){vals.push(a.bars[i].c);if(a.s25[i]!=null)vals.push(a.s25[i]);if(a.s75[i]!=null)vals.push(a.s75[i])}
+  lines.forEach(function(l){vals.push(l.y)});
+  var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),pd=(mx-mn)*0.06||1;mn-=pd;mx+=pd;
+  var ys=function(v){return T+(H-T-B)*(1-(v-mn)/(mx-mn))};
+  var path=function(arr,fn){var d="",on=false;for(var i=st;i<a.bars.length;i++){var v=fn(i);if(v==null){on=false;continue}d+=(on?"L":"M")+xs(i-st).toFixed(1)+" "+ys(v).toFixed(1)+" ";on=true}return d};
+  var g="",k;
+  for(k=0;k<=3;k++){var v=mn+(mx-mn)*k/3,y=ys(v);g+='<line class="grid" x1="'+L+'" x2="'+(W-Rr)+'" y1="'+y+'" y2="'+y+'"/><text x="'+(L-6)+'" y="'+(y+3)+'" text-anchor="end">'+f0(v)+'</text>'}
+  [0,Math.floor((N-1)/2),N-1].forEach(function(i){g+='<text x="'+xs(i)+'" y="'+(H-6)+'" text-anchor="'+(i===0?"start":i===N-1?"end":"middle")+'">'+a.bars[st+i].d.slice(5)+'</text>'});
+  var ll="";lines.forEach(function(l){var y=ys(l.y);ll+='<line class="ln-'+l.k+'" x1="'+L+'" x2="'+(W-Rr)+'" y1="'+y+'" y2="'+y+'"/><text x="'+(W-Rr-2)+'" y="'+(y-3)+'" text-anchor="end">'+l.t+' '+f0(l.y)+'</text>'});
+  // rsi panel
+  var oy=H+8, rs=function(v){return oy+(H2)*(1-v/100)}, rp="";
+  for(var j=st;j<a.bars.length;j++){var r=a.rsiS[j];if(r==null)continue;rp+=(rp?"L":"M")+xs(j-st).toFixed(1)+" "+rs(r).toFixed(1)+" "}
+  var rg='<line class="grid" x1="'+L+'" x2="'+(W-Rr)+'" y1="'+rs(70)+'" y2="'+rs(70)+'"/><line class="grid" x1="'+L+'" x2="'+(W-Rr)+'" y1="'+rs(30)+'" y2="'+rs(30)+'"/><text x="'+(L-6)+'" y="'+(rs(70)+3)+'" text-anchor="end">70</text><text x="'+(L-6)+'" y="'+(rs(30)+3)+'" text-anchor="end">30</text><text x="'+(L-6)+'" y="'+(oy-1)+'" text-anchor="end">RSI</text>';
+  return'<svg class="ch" viewBox="0 0 '+W+' '+(H+H2+14)+'" role="img" aria-label="終値と移動平均線、RSIのチャート">'+g+
+    '<path class="s75" d="'+path(a.s75,function(i){return a.s75[i]})+'"/><path class="s25" d="'+path(a.s25,function(i){return a.s25[i]})+'"/><path class="px" d="'+path(null,function(i){return a.bars[i].c})+'"/>'+ll+rg+'<path class="rs" d="'+rp+'"/></svg>';
+}
+function renderSide(){
+  var s=S.settings;
+  [["s_capital","capital"],["s_risk","riskPct"],["s_pos","maxPosPct"],["s_max","maxPositions"],["s_new","maxNew"],["s_cash","cashPct"],["s_atr","stopAtr"]].forEach(function(p){var el=$(p[0]);if(document.activeElement!==el)el.value=s[p[1]]});
+  var opts=S.watch.map(function(w){return'<option value="'+w.code+'">'+w.code+' '+esc(w.name)+'</option>'}).join("");
+  [["h_code"],["pasteCode"]].forEach(function(p){var el=$(p[0]),v=el.value;el.innerHTML=opts;if(v)el.value=v});
+  $("holdList").innerHTML=S.holdings.length?S.holdings.map(function(h,i){
+    return'<div class="hl"><div>'+h.code+' '+esc(nameOf(h.code))+'<div class="num">'+f0(h.shares)+'株 @ '+yen(h.avg)+(h.stop?' / 損切り '+yen(h.stop):'')+'</div></div><button class="btn sm" data-del="'+i+'" aria-label="削除">削除</button></div>'}).join(""):'<div class="hint">保有銘柄はありません。</div>';
+  $("chips").innerHTML=S.watch.map(function(w,i){var has=!!R.all[w.code];
+    return'<span class="chip'+(has?"":" no")+'"><span class="num">'+w.code+'</span>'+esc(w.name)+(has?"":'(データなし)')+'<button data-rm="'+i+'" aria-label="'+esc(w.name)+'を外す">×</button></span>'}).join("");
+  $("autoRun").checked=S.auto;
+}
+
+/* ---------- CSV ---------- */
+function parseCSV(text){
+  var lines=text.replace(/\r/g,"").split("\n").filter(function(l){return l.trim()});
+  if(lines.length<2)throw new Error("行が足りません");
+  var delim=lines[0].indexOf("\t")>=0?"\t":",";
+  var hd=lines[0].split(delim).map(function(x){return x.trim().toLowerCase().replace(/"/g,"")});
+  var find=function(names){for(var i=0;i<hd.length;i++){if(names.indexOf(hd[i])>=0)return i}return-1};
+  var di=find(["date","日付","time"]),oi=find(["open","始値"]),hi=find(["high","高値"]),li=find(["low","安値"]),ci=find(["close","終値"]),vi=find(["volume","出来高"]);
+  if(di<0||ci<0||hi<0||li<0)throw new Error("日付・高値・安値・終値の列が見つかりません");
+  var out=[];
+  for(var k=1;k<lines.length;k++){
+    var p=lines[k].split(delim).map(function(x){return x.trim().replace(/"/g,"").replace(/,/g,delim===","?"":",")});
+    var m=p[di].match(/(\d{4})[-\/年](\d{1,2})[-\/月](\d{1,2})/); if(!m)continue;
+    var d=m[1]+"-"+pad(+m[2])+"-"+pad(+m[3]);
+    var o=+p[oi>=0?oi:ci],h=+p[hi],l=+p[li],c=+p[ci],v=vi>=0?+p[vi]:0;
+    if(!isFinite(h)||!isFinite(l)||!isFinite(c)||c<=0)continue;
+    out.push([d,isFinite(o)?o:c,h,l,c,isFinite(v)?v:0]);
+  }
+  out.sort(function(a,b){return a[0]<b[0]?-1:a[0]>b[0]?1:0});
+  var ded=[];out.forEach(function(r){if(ded.length&&ded[ded.length-1][0]===r[0])ded[ded.length-1]=r;else ded.push(r)});
+  if(ded.length<80)throw new Error("日足が"+ded.length+"本しかありません(75本以上必要)");
+  return ded.slice(-400);
+}
+function setData(code,rows){
+  if(S.demo){S.data={};S.holdings=[];S.demo=false}
+  S.data[code]=rows;
+  if(!S.watch.some(function(w){return w.code===code}))S.watch.push({code:code,name:"(名称未設定)"});
+}
+function onFiles(files){
+  var list=Array.prototype.slice.call(files),ok=0,errs=[],pending=list.length;
+  if(!pending)return;
+  list.forEach(function(f){
+    var rd=new FileReader();
+    rd.onload=function(){
+      try{
+        var m=f.name.match(/(\d{3}[0-9A-Z])/); if(!m)throw new Error("ファイル名に銘柄コードがありません");
+        setData(m[1],parseCSV(String(rd.result)));ok++;
+      }catch(e){errs.push(f.name+": "+e.message)}
+      if(--pending===0)done();
+    };
+    rd.onerror=function(){errs.push(f.name+": 読み込めません");if(--pending===0)done()};
+    rd.readAsText(f);
+  });
+  function done(){save();renderAll();toast(ok+"銘柄を取り込みました"+(errs.length?"。失敗: "+errs.join(" / "):""));$("fileIn").value=""}
+}
+
+/* ---------- demo data ---------- */
+function rng(seed){var a=seed>>>0;return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function gauss(r){var u=0,v=0;while(!u)u=r();while(!v)v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+var DEMO={ // [基準価格, 形, ボラ]
+  "7203":[2850,"dip",.011],"8306":[2200,"up",.012],"8316":[4600,"dip",.012],"9432":[165,"range",.008],"9433":[2600,"dip",.009],"2914":[4300,"down",.010],
+  "8058":[2900,"pullback",.014],"8031":[3300,"overheat",.013],"8001":[7900,"up",.011],"4502":[4200,"down",.012],"6501":[4100,"range",.015],"4063":[5100,"down",.014]};
+function makeDemo(code){
+  var cfg=DEMO[code]||[3000,"range",.012],r=rng(parseInt(code,10)*7919),N=260,end=expectedLastClose(),dates=[],d=new Date(end+"T00:00:00Z");
+  while(dates.length<N){if(isWeekday(d))dates.unshift(ymd(d));d=new Date(d.getTime()-86400e3)}
+  var p=cfg[0],vol=cfg[2],shape=cfg[1],rows=[],avgV=2e6*(0.5+r());
+  for(var i=0;i<N;i++){
+    var t=i/(N-1),drift=0,rem=N-1-i;
+    if(shape==="up")drift=0.0007;
+    else if(shape==="pullback")drift=rem>8?0.0010:-0.0065;
+    else if(shape==="dip")drift=rem>7?0.0009:rem>3?-0.0045:0.0035;
+    else if(shape==="down")drift=t<.35?0.0006:-0.0014;
+    else if(shape==="overheat")drift=rem>12?0.0006:0.0075;
+    else drift=(cfg[0]-p)/cfg[0]*0.04;
+    var o=p,ret=drift+vol*gauss(r);p=Math.max(10,p*(1+ret));
+    var hi=Math.max(o,p)*(1+Math.abs(gauss(r))*vol*0.5),lo=Math.min(o,p)*(1-Math.abs(gauss(r))*vol*0.5),dec=p<1000?1:p<5000?1:5;
+    var rd=function(x){return Math.round(x/dec)*dec};
+    rows.push([dates[i],rd(o),rd(hi),rd(lo),rd(p),Math.round(avgV*(0.7+0.6*r()))]);
+  }
+  return rows;
+}
+function loadDemo(){
+  S.data={};Object.keys(DEMO).forEach(function(c){S.data[c]=makeDemo(c)});
+  S.watch=DEFAULT_WATCH.map(function(w){return{code:w[0],name:w[1]}});
+  S.demo=true;S.settings.capital=5000000;
+  S.holdings=[{code:"2914",shares:100,avg:Math.round(S.data["2914"][150][4]),stop:0},{code:"9433",shares:100,avg:Math.round(S.data["9433"][200][4]),stop:0},{code:"8001",shares:100,avg:Math.round(S.data["8001"][210][4]),stop:0}];
+  sel=null;save();renderAll();toast("デモデータを読み込みました(架空の価格です)");
+}
+
+/* ---------- 自動取得データ(data.json) ---------- */
+function loadRemote(){
+  return fetch("data.json?t="+Date.now(),{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("no data.json");return r.json()}).then(function(j){
+    if(!j||!j.data)throw new Error("bad data.json");
+    S.data=j.data; if(j.watch&&j.watch.length)S.watch=j.watch;
+    if(j.settings)S.settings=Object.assign({},DEFAULT_SET,j.settings);
+    if(j.holdings)S.holdings=j.holdings;
+    S.demo=false; S.remote={generated:j.generated||"",source:j.source||""}; save(); sel=null; renderAll();
+  });
+}
+/* ---------- ui ---------- */
+var tt=null;
+function toast(m){var t=$("toast");t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(function(){t.hidden=true},4200)}
+function bind(){
+  [["s_capital","capital"],["s_risk","riskPct"],["s_pos","maxPosPct"],["s_max","maxPositions"],["s_new","maxNew"],["s_cash","cashPct"],["s_atr","stopAtr"]].forEach(function(p){
+    $(p[0]).addEventListener("input",function(){var v=parseFloat(this.value);if(isFinite(v)&&v>=0){S.settings[p[1]]=v;save();R=compute();renderStatus();renderAdvice();renderTable();renderDetail()}});
+  });
+  $("tbl").addEventListener("click",function(e){var tr=e.target.closest("tr[data-c]");if(!tr||!R.all[tr.dataset.c])return;sel=tr.dataset.c;renderTable();renderDetail()});
+  $("demoBtn").addEventListener("click",loadDemo);
+  $("clearBtn").addEventListener("click",function(){S.data={};S.demo=false;S.holdings=[];save();renderAll();toast("価格データと保有銘柄を消去しました")});
+  $("fileIn").addEventListener("change",function(){onFiles(this.files)});
+  $("pasteBtn").addEventListener("click",function(){
+    try{var rows=parseCSV($("pasteTa").value);setData($("pasteCode").value,rows);$("pasteTa").value="";save();renderAll();toast($("pasteCode").value+" を取り込みました("+rows.length+"本)")}
+    catch(e){toast("取り込めません: "+e.message)}
+  });
+  $("h_add").addEventListener("click",function(){
+    var sh=parseInt($("h_sh").value,10),px=parseFloat($("h_px").value),stp=parseFloat($("h_stop").value)||0;
+    if(!(sh>=100)||!(px>0)){toast("株数(100株以上)と取得単価を入力してください");return}
+    if(S.demo){S.holdings=[]}
+    S.holdings.push({code:$("h_code").value,shares:sh,avg:px,stop:stp});
+    ["h_sh","h_px","h_stop"].forEach(function(i){$(i).value=""});save();renderAll();
+  });
+  $("holdList").addEventListener("click",function(e){var b=e.target.closest("[data-del]");if(!b)return;S.holdings.splice(+b.dataset.del,1);save();renderAll()});
+  $("chips").addEventListener("click",function(e){var b=e.target.closest("[data-rm]");if(!b)return;var w=S.watch.splice(+b.dataset.rm,1)[0];delete S.data[w.code];S.holdings=S.holdings.filter(function(h){return h.code!==w.code});save();renderAll()});
+  $("w_add").addEventListener("click",function(){
+    var c=$("w_code").value.trim().toUpperCase(),n=$("w_name").value.trim()||"(名称未設定)";
+    if(!/^\d{3}[0-9A-Z]$/.test(c)){toast("銘柄コードは4桁で入力してください 例: 6758");return}
+    if(S.watch.some(function(w){return w.code===c})){toast("すでに登録されています");return}
+    S.watch.push({code:c,name:n});$("w_code").value="";$("w_name").value="";save();renderAll();
+  });
+  $("autoRun").addEventListener("change",function(){
+    S.auto=this.checked;S.lastAuto=S.auto&&jstNow().getUTCHours()>=9?ymd(jstNow()):"";save();
+    if(S.auto){try{if(window.Notification&&Notification.permission==="default")Notification.requestPermission()}catch(e){}
+      toast("このページを開いたままにすると、平日9:00に自動で再計算します")}
+  });
+}
+function seenFlag(){try{if(localStorage.getItem(LS+"-seen"))return true;localStorage.setItem(LS+"-seen","1")}catch(e){}return false}
+bind();renderAll();tick();setInterval(tick,1000);
+loadRemote().catch(function(){S.remote=null;if(!R.withData&&!S.watch.some(function(w){return S.data[w.code]})&&!seenFlag()){loadDemo()}});
+})();
+</script>

@@ -1,0 +1,26 @@
+{
+  "settings": {
+    "capital": 1000000,
+    "riskPct": 0.5,
+    "maxPosPct": 20,
+    "maxPositions": 5,
+    "maxNew": 2,
+    "cashPct": 40,
+    "stopAtr": 2
+  },
+  "watch": [
+    {"code": "7203", "name": "トヨタ自動車"},
+    {"code": "8306", "name": "三菱UFJフィナンシャル"},
+    {"code": "8316", "name": "三井住友FG"},
+    {"code": "9432", "name": "日本電信電話"},
+    {"code": "9433", "name": "KDDI"},
+    {"code": "2914", "name": "日本たばこ産業"},
+    {"code": "8058", "name": "三菱商事"},
+    {"code": "8031", "name": "三井物産"},
+    {"code": "8001", "name": "伊藤忠商事"},
+    {"code": "4502", "name": "武田薬品工業"},
+    {"code": "6501", "name": "日立製作所"},
+    {"code": "4063", "name": "信越化学工業"}
+  ],
+  "holdings": []
+}

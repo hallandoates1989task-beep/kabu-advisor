@@ -1,0 +1,2 @@
+yfinance>=0.2.40
+jpholiday>=0.1.10
